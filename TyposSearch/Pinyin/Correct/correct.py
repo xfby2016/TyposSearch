@@ -1,15 +1,29 @@
 
 from pypinyin import lazy_pinyin
-import string, re
-import jieba
+import string, re, operator
+import jieba, gensim
+
+Data_path = "D:/Project/Python/NLP/Gensim/Word2Vec/Data/Generate_Data/Model/"
+Type = "All/All.model"
+model_path = Data_path + Type
+
+model = gensim.models.Word2Vec.load(model_path)
 
 PATH1 = "jieba.txt"
 PATH2 = "cn_dict.txt"
 PATH3 = "words.txt"
 PATH4 = "pinyin.txt"
+PATH5 = "stopwords.txt"
 
-PUNCTUATION_LIST = string.punctuation
-PUNCTUATION_LIST += "。，？：；、｛｝［］‘“”’《》／！％……（）"
+PUNCTUATION_LIST = "["
+PUNCTUATION_LIST += string.punctuation
+PUNCTUATION_LIST += "。，？：；、｛｝［］‘“”’《》／！％……（）]"
+
+def loadStopWords(file_path):
+    stopwords = []
+    for line in open(file_path, encoding='utf-8'):
+        stopwords.append(line.strip())
+    return stopwords
 
 def match_Chinese(word):
     return True if re.match(u'[\u4e00-\u9fa5]', word) != None else False
@@ -127,10 +141,94 @@ def correct(py, dictionary):
     else:
         return "有问题"
 
-def cut_sentence(sentence):
-    jieba_cut = jieba.cut(sentence, cut_all=False)
+def cut_sentence(sentence, cut_all):
+    jieba_cut = jieba.cut(sentence, cut_all=cut_all)
     return "\t".join(jieba_cut).split("\t")
 
+def remove_blank(List):
+    "去除空项"
+    L = []
+    for i in List:
+        if len(i) != 0:
+            L.append(i)
+    return L
+
+def remove_space(List):
+    "去除空格项"
+    l = List
+    for i in l:
+        if " " in l:
+            l.remove(" ")
+    return l
+
+def seg_sentence(sentence):
+    "把句子分割成一句一句的, 并返回列表"
+    return re.split(PUNCTUATION_LIST, sentence)
+
+def get_list(sentence):
+    return remove_space(remove_blank(seg_sentence(sentence)))
+
+def get_sentence_words_dic(sentence_list):
+    dic = {}
+    for item in sentence_list:
+        dic[str(item)] = cut_sentence(item, cut_all=True)
+    return dic
+
+def get_similarity(word, words):
+    "返回词语相关性"
+    similarity = 0
+    for w in words:
+        if word != w and word in model and w in model:
+            similarity += model.similarity(word, w)
+    return similarity/len(words)
+
+def sort(Dictionary):
+    "给字典按键值降序排序"
+    return sorted(Dictionary.items(), key=operator.itemgetter(0), reverse=True)
+
+def just_correct(words, dictionary_hanzi, correct_sentence, dictionary_pinyin):
+    "初级修改"
+    for word in words:
+        if match_Chinese(word):
+            if word not in PUNCTUATION_LIST:
+                if word in dictionary_hanzi:
+                    correct_sentence += word
+                else:
+                    correctpinyin = correct_pinyin(word)
+                    correct_sentence += correct(correctpinyin, dictionary_pinyin)
+            else:
+                correct_sentence += word
+        else:
+            correct_sentence += word
+    print("\n")
+    print(correct_sentence)
+    return correct_sentence
+
+def suggest_modify(correct_sentence, dictionary_pinyin):
+    "给出建议修改意见"
+    stopwords = loadStopWords(PATH5)
+    sentence_words_dic = get_sentence_words_dic(get_list(correct_sentence))
+    print(sentence_words_dic)
+    for key in sentence_words_dic:
+        similarity_dic = {}
+        for word in sentence_words_dic[key]:
+            if match_Chinese(word) and word not in stopwords:
+                pinyin_list = dictionary_pinyin[getPinyin(word)]
+                length = len(pinyin_list)
+                for i in range(0, length, 2):
+                    similarity_dic[get_similarity(pinyin_list[i], sentence_words_dic[key])] = pinyin_list[i]
+
+        sorted_similarity_dic = sort(similarity_dic)
+
+        for item in sorted_similarity_dic:
+            if item[1] in sentence_words_dic[key]:
+                pass
+            else:
+                suggest = item[1]
+                break
+
+        print(sorted_similarity_dic)
+        print(suggest)
 
 def main():
     # import datetime
@@ -142,29 +240,20 @@ def main():
     dictionary_hanzi = construct_dict(PATH1, isPinyin=False, isDictionary=False)
     print("载入完成\n")
     while True:
+
         content = input("请输入一个词语或者一段话:")
         correct_sentence = ""
-        words = cut_sentence(content)
-        for word in words:
-            if match_Chinese(word):
-                if word not in PUNCTUATION_LIST:
-                    if word in dictionary_hanzi:
-                        correct_sentence += word
-                    else:
-                        correctpinyin = correct_pinyin(word)
-                        correct_sentence += correct(correctpinyin, dictionary_pinyin)
-                else:
-                    correct_sentence += word
-            else:
-                correct_sentence += word
-        print("\n")
-        print(correct_sentence)
+        words = cut_sentence(content, cut_all=False)
+
+        correct_sentence = just_correct(words, dictionary_hanzi, correct_sentence, dictionary_pinyin)
+
+        suggest_modify(correct_sentence, dictionary_pinyin)
+
         print("\n")
 
 
     # end = datetime.datetime.now()
     # print("\n\n", end-start)
-
 
 if __name__ == '__main__':
     main()
